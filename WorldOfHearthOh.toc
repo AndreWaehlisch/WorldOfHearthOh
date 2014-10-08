@@ -2,14 +2,14 @@
 
 ## Title: WorldOfHearthOh
 
-## Version: 0.1
+## Version: 0.0.2
 
 ## Author: |cffFF7D0AHoochie|r @EU-Dethecus
 
-Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
-Libs\LibStub\LibStub.lua
-Libs\AceComm-3.0\AceComm-3.0.xml
+Embeds.xml
 
+WorldOfHearthOh.lua
 Cards.lua
 Core.lua
+Console.lua
 Comm.lua

@@ -1,5 +1,3 @@
-WoHo = {};
-
 WoHo.minions = {
 	[17822] = { "Prophet Velen", 7, 7, "Double the damage and healing of your spells and Hero Power." },
 	[19780] = { "Mana Addict", 1, 3, "Whenever you cast a spell, gain +2 Attack this turn." },
@@ -261,6 +259,9 @@ WoHo.minions = {
 };
 
 WoHo.numMinions = 0;
-for i in pairs(WoHo.minions) do
+WoHo.IDs = {};
+
+for displayID in pairs(WoHo.minions) do
 	WoHo.numMinions = WoHo.numMinions + 1;
+	tinsert(WoHo.IDs, displayID);
 end;

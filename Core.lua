@@ -1,4 +1,4 @@
-WoHo.Tiles = {};--links to models. to get container use tiles[i]:GetParent.
+WoHo.Tiles = {};--links to models, to get container use tiles[i]:GetParent
 WoHo.Selected = {};
 WoHo.numSelected = 0;
 WoHo.wantedClickAction = 0;
@@ -8,11 +8,19 @@ WoHo.tileSize = 80;
 WoHo.selectionBorderSize = 8;
 WoHo.numTilesPerPlayer = 5;
 WoHo.tilesOffsetFromTopAndBottom = 50;
+WoHo.DeckSize = 10;
 
---owner list:
+--Tiles[i].owner:
 --0: detail page
 --1: players minions
 --2: enemies minions
+
+--Tiles[i].status:
+--0: <tile not occupied>
+--1: name
+--2: atk
+--3: def
+--4: note
 
 WoHo.Hands = {
 	[0] = {},
@@ -20,39 +28,34 @@ WoHo.Hands = {
 	[2] = {},
 };
 
---status
---0: <tile not occupied>
---1: name
---2: atk
---3: def
---4: note
+function WoHo:GetRandomMinionID()
+	return WoHo.IDs[fastrandom(1, #WoHo.IDs)];
+end;
 
 function WoHo:StartGame()
 	WoHo.gameInProgress = true;
-	--WoHo.startGameButton:Hide();
+	WoHo.startGameButton:Hide();
 	WoHo.detailPage:Hide();
 	WoHo:RemoveAllSelections();
 	
-	for i, k in pairs(WoHo.Tiles) do
-		k:GetParent():Show();
-		k:SetDisplay();
+	for i, Tile in pairs(WoHo.Tiles) do
+		Tile:GetParent():Show();
+		Tile:SetDisplay();
 	end;
 	
-	WoHo.makeMoveButton:Show();
-end;
-
-function WoHo:GetRandomMinionID()
-	local rand = fastrandom(1,WoHo.numMinions);
-	local count = 0;
-	
-	for i in pairs(WoHo.minions) do
-		count = count + 1;
-		if count == rand then
-			return i;
+	for owner = 1, 2 do
+		for i = 1, WoHo.DeckSize do
+			tinsert(WoHo.Hands[owner], WoHo:GetRandomMinionID());
 		end;
 	end;
 	
-	return 384;
+	WoHo.handCounterPlayer:SetText(format("%s: %d","Deck",#WoHo.Hands[1]));
+	WoHo.handCounterEnemy:SetText(format("%s: %d","Deck",#WoHo.Hands[2]));
+	
+	WoHo.handCounterPlayer:Show();
+	WoHo.handCounterEnemy:Show();
+	
+	WoHo.makeMoveButton:Show();
 end;
 
 function WoHo:CreateDetailPage()
@@ -107,7 +110,7 @@ function WoHo:SetDetailDisplay(displayID)
 	WoHo.detailPage:Hide();
 	
 	if not (displayID==0) then
-		WoHo.Hands[0] = {displayID};
+		WoHo.Hands[0] = { displayID };
 		WoHo.detailPage:Show();
 	end;
 end;
@@ -145,10 +148,10 @@ function WoHo:CreateAnimationPath(frame)
 		local timeVar = 0;
 		
 		--duration of the forth animation (this is the half of the whole duration)
-		local duration = assert(frame.duration,"No animation duration found for this frame.")/2;
+		local duration = assert(frame.duration, "No animation duration found for the requested frame.")/2;
 		
 		--target frame of the animation
-		local target = assert(frame.animationTarget,"No target frame found for this frame."):GetParent();
+		local target = assert(frame.animationTarget,"No target frame found for the requested frame."):GetParent();
 		
 		--coordinates of start positions of frame and target
 		local frameX = frame:GetLeft();
@@ -174,7 +177,7 @@ function WoHo:CreateAnimationPath(frame)
 		end;
 		
 		--DO the moving
-		frame:SetScript("OnUpdate",function(self,elapsed)
+		frame:SetScript("OnUpdate",function(self, elapsed)
 			timeVar = timeVar + elapsed;
 			
 			if timeVar >= duration*2 then
@@ -206,14 +209,68 @@ function WoHo:CreateAnimationPath(frame)
 		);
 	end;
 	
-	function frame:SetAnimationPath(target,duration)
+	function frame:SetAnimationPath(target, duration)
 		local frame = frame:GetParent();
 		frame.animationTarget = assert(target,"No target frame specified!");
 		frame.duration = duration or WoHo.attackAnimationDuration;--duration in seconds
 	end;
 end;
 
-function WoHo:AttackAnimation(source,target)
+--TODO: move this somewhere better
+do
+	WoHo.Queue = setmetatable({},{
+		__newindex = function(tab, key, value)
+			rawset(tab,key,value);
+			
+			--when new entry is added to the queue and OnUpdate is disabled: re-enable it!
+			if not WoHo.QueueFrame:GetScript("OnUpdate") then
+				WoHo.QueueFrame:SetScript("OnUpdate",WoHo.QueueOnUpdate)
+			end;
+		end,
+	});
+	
+	WoHo.QueueFrame = CreateFrame("Frame");
+	
+	WoHo.AnimationPauseDur = 1.5;
+	
+	WoHo.AnimationPauseFunc = function()
+		WoHo.AnimationPause = true;
+	end;
+	
+	local timer;
+	
+	function WoHo:QueueOnUpdate(elapsed)
+		if timer then
+			timer = timer + elapsed;
+			
+			if ( not WoHo.AnimationPause ) or ( timer > WoHo.AnimationPauseDur ) then
+				WoHo.AnimationPause = false;
+
+				if #WoHo.Queue > 0 then
+					timer = 0;
+					WoHo.Queue[1]();
+					tremove(WoHo.Queue,1);
+				else
+					timer = nil;
+					WoHo.QueueFrame:SetScript("OnUpdate",nil);
+				end;
+			end;
+		else
+			timer = elapsed;
+		end;
+	end;
+end;
+
+function WoHo:QueueUpAction(ActionFunc)
+	WoHo.Queue[#WoHo.Queue+1] = ActionFunc;--tinsert uses rawset and thus doesn't invoke our metamethod
+end;
+
+function WoHo:QueueUpAnimation(AnimationFunc)
+	WoHo.Queue[#WoHo.Queue+1] = AnimationFunc;
+	WoHo.Queue[#WoHo.Queue+1] = WoHo.AnimationPauseFunc;
+end;
+
+function WoHo:AttackAnimation(source, target)
 	source:AnimationStop();
 	source:SetAnimationPath(target);
 	source:AnimationPlay();
@@ -225,20 +282,26 @@ function WoHo:KillMinion(minion)
 	minion:ClearModel();
 end;
 
-function WoHo:Attack(source,target)
-	WoHo:AttackAnimation(source,target);
+function WoHo:Attack(source, target)
+	WoHo:QueueUpAnimation(function()
+		WoHo:AttackAnimation(source,target);
+	end);
 
-	local sourceATK = WoHo.minions[source.displayID][source.status];
-	local targetATKDEF = WoHo.minions[target.displayID][target.status];
-	
-	if sourceATK > targetATKDEF then
-		WoHo:KillMinion(target);
-	elseif sourceATK == targetATKDEF then
-		WoHo:KillMinion(source);
-		WoHo:KillMinion(target);
-	else
-		WoHo:KillMinion(source);
-	end;
+	WoHo:QueueUpAction(function()
+		local sourceATK = WoHo.minions[source.displayID][source.status];
+		local targetATKDEF = WoHo.minions[target.displayID][target.status];
+
+		if (sourceATK > targetATKDEF) then
+			WoHo:KillMinion(target);
+		elseif (sourceATK == targetATKDEF) then
+			WoHo:KillMinion(source);
+			WoHo:KillMinion(target);
+		else
+			WoHo:KillMinion(source);
+		end;
+
+		WoHo:RepopulateDeadTiles();
+	end);
 end;
 
 function WoHo:LeftButtonTile(tile)
@@ -327,6 +390,125 @@ function WoHo:CreateModel(owner,parent,point,x,y,parentPoint,width,height)
 	return myModel;
 end;
 
+function WoHo:RepopulateDeadTiles()
+	for i in pairs(WoHo.Tiles) do
+		local tile = WoHo.Tiles[i];
+		local owner = tile.owner;
+		local status = tile.status;
+		
+		if (owner > 0) and (status == 0) then
+			local newFromHand = WoHo.Hands[owner][1];
+			
+			if newFromHand then
+				tile:SetDisplay(newFromHand);
+				tremove(WoHo.Hands[owner], 1);
+			end;
+		end;
+	end;
+	
+	WoHo.handCounterPlayer:SetText(format("%s: %d","Deck",#WoHo.Hands[1]));
+	WoHo.handCounterEnemy:SetText(format("%s: %d","Deck",#WoHo.Hands[2]));
+end;
+
+function WoHo:MatchEnd(winner)
+	if winner == 0 then
+		print("WoHo: Draw!!!");
+	elseif winner == 1 then
+		print("WoHo: YOU WIN!!!");
+	elseif winner == 2 then
+		print("WoHo: You lose!!!");
+	end;
+	
+	print("WoHo: Restarting...");
+	
+	WoHo.StartGame();
+end;
+
+function WoHo:CheckWinLose()
+	local playerCount = #WoHo.Hands[1];
+	local enemyCount = #WoHo.Hands[2];
+	
+	for i in pairs(WoHo.Tiles) do
+		local tile = WoHo.Tiles[i];
+		local owner = tile.owner;
+		local status = tile.status;
+		
+		if ( owner == 1 ) and ( status > 0 ) then
+			playerCount = playerCount + 1;
+		elseif ( owner == 2 ) and ( status > 0 ) then
+			enemyCount = enemyCount + 1;
+		end;
+	end;
+	
+	if ( enemyCount == 0 ) and ( playerCount == 0 ) then
+		WoHo:MatchEnd(0);
+	elseif ( enemyCount > 0 ) and ( playerCount == 0 ) then
+		WoHo:MatchEnd(2);
+	elseif ( enemyCount == 0 ) and ( playerCount > 0 ) then
+		WoHo:MatchEnd(1);
+	else
+		return true;
+	end;
+end;
+
+function WoHo:GetRandomOccupiedTile(owner)
+	local startTile = (owner-1)*WoHo.numTilesPerPlayer+2;
+	
+	local occupieds = {};
+	
+	for tile = startTile, startTile+WoHo.numTilesPerPlayer-1 do
+		if WoHo.Tiles[tile].status > 0 then
+			tinsert(occupieds,tile);
+		end;
+	end;
+	
+	if #occupieds > 0 then
+		local randomTileID = occupieds[fastrandom(1, #occupieds)];
+		return WoHo.Tiles[randomTileID];
+	end;
+end;
+
+function WoHo:NPCMove()
+	local randomPlayer = WoHo:GetRandomOccupiedTile(1);
+	local randomEnemy = WoHo:GetRandomOccupiedTile(2);
+	
+	if randomPlayer and randomEnemy then
+		WoHo.Queue[#WoHo.Queue+1] = WoHo.AnimationPauseFunc;
+		
+		WoHo:QueueUpAction(function()
+			WoHo:RemoveAllSelections();
+			WoHo:SetSelection(randomEnemy);
+			WoHo:SetSelection(randomPlayer);
+		end);
+		
+		WoHo:Attack(randomEnemy, randomPlayer);
+	end;
+end;
+
+function WoHo:MakeMove()
+	if ( WoHo.numSelected == 2 ) then
+		local source, target;
+		for i in pairs(WoHo.Selected) do
+			local owner = WoHo.Tiles[i].owner
+			if owner == 1 then
+				source = WoHo.Tiles[i];
+			elseif owner == 2 then
+				target = WoHo.Tiles[i];
+			end;
+		end;
+
+		if (source.status == 0) or (target.status == 0) then
+			return;
+		end;
+
+		WoHo:Attack(source, target);
+		
+		if WoHo:CheckWinLose() then
+			WoHo:NPCMove();
+		end;
+	end;
+end;
+
 function WoHo:CreateBoard()
 	--create the board
 	WoHo.board = CreateFrame("Frame");
@@ -388,43 +570,23 @@ function WoHo:CreateBoard()
 	WoHo.makeMoveButton:SetSize(80,40);
 	WoHo.makeMoveButton:SetPoint("LEFT",WoHo.startGameButton,"RIGHT",10,0);
 	WoHo.makeMoveButton:SetText("Make Move");
-	WoHo.makeMoveButton:SetScript("OnClick",function()
-		if WoHo.numSelected == 2 then
-			local source, target;
-			for i in pairs(WoHo.Selected) do
-				local owner = WoHo.Tiles[i].owner
-				if owner == 1 then
-					source = WoHo.Tiles[i];
-				elseif owner == 2 then
-					target = WoHo.Tiles[i];
-				end;
-			end;
-			
-			if source.status == 0 or target.status == 0 then
-				return;
-			end;
-			
-			WoHo:Attack(source,target)
-		end;
-	end);
-end;
-
------------------------------------------
---Slash Commands
------------------------------------------
-SLASH_WOHO1 = "/woho";
-local function WoHoSlashCmd(msg,self)
-	if not msg then
-		return;
-	end;
+	WoHo.makeMoveButton:SetScript("OnClick",WoHo.MakeMove);
 	
-	local lowmsg = strlower(msg);
-	local command, commandrest = lowmsg:match("^(%S*)%s*(.-)$");
-	-- local arg1, arg1rest = commandrest:match("^(%S*)%s*(.-)$");
-	-- local arg2, arg2rest = arg1rest:match("^(%S*)%s*(.-)$");
-
-	WoHo.board:Show();
+	--hand count player
+	WoHo.handCounterPlayer = WoHo.board:CreateFontString(nil,"ARTWORK","GameFontNormal");
+	WoHo.handCounterPlayer:Hide();
+	WoHo.handCounterPlayer:SetSize(50,50);
+	WoHo.handCounterPlayer:SetPoint("LEFT",WoHo.Tiles[WoHo.numTilesPerPlayer+1],"RIGHT",10,0);
+	WoHo.handCounterPlayer:SetJustifyH("LEFT");
+	
+	--hand count enemy
+	WoHo.handCounterEnemy = WoHo.board:CreateFontString(nil,"ARTWORK","GameFontNormal");
+	WoHo.handCounterEnemy:Hide();
+	WoHo.handCounterEnemy:SetSize(50,50);
+	WoHo.handCounterEnemy:SetPoint("LEFT",WoHo.Tiles[WoHo.numTilesPerPlayer*2+1],"RIGHT",10,0);
+	WoHo.handCounterEnemy:SetJustifyH("LEFT");
 end;
-SlashCmdList["WOHO"] = WoHoSlashCmd;
+
+
 
 WoHo:CreateBoard();
